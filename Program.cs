@@ -1,6 +1,26 @@
 using Recorder.Api.Services;
+using Recorder.Api.Services.MediaBot;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Run under the Windows Service Control Manager when installed as a service (see
+// install-service.ps1). No-op when launched from a console, so `dotnet run` still works.
+builder.Host.UseWindowsService();
+
+// Persist the full log stream to a rolling daily file next to the exe (logs/recorder-<date>.log)
+// so it's available while running headless as a service - the console stream is otherwise lost.
+// Console sink is kept so `dotnet .\Recorder.Api.dll` still shows live logs when debugging.
+// Path is anchored to AppContext.BaseDirectory (not the CWD, which is System32 under a service).
+builder.Host.UseSerilog((context, config) => config
+    .ReadFrom.Configuration(context.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(AppContext.BaseDirectory, "logs", "recorder-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14,
+        shared: true));
 
 builder.Configuration
     .AddInMemoryCollection(new Dictionary<string, string?>
@@ -29,6 +49,14 @@ builder.Services.AddSingleton<TeamsMediaService>();
 builder.Services.AddSingleton<MicrophoneCaptureService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<MicrophoneCaptureService>());
 
+// ----- Media bot (application-hosted media) registrations -----
+// The bot only builds its Graph Communications client lazily on first join, so these
+// are harmless when MEDIA_BOT_ENABLED is false (the recorder runs exactly as before).
+builder.Services.AddSingleton(MediaBotOptions.FromConfiguration(builder.Configuration));
+builder.Services.AddHttpClient(nameof(MediaBotAuthenticationProvider));
+builder.Services.AddSingleton<MediaBotAuthenticationProvider>();
+builder.Services.AddSingleton<MediaBotService>();
+
 var app = builder.Build();
 
 // Wire the circular dependency after the container is built.
@@ -49,7 +77,10 @@ app.Run();
 static Dictionary<string, string?> LoadLocalConfiguration()
 {
     var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-    var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+    // Walk up from the executable's own folder, NOT Directory.GetCurrentDirectory(). Under the
+    // Windows Service Control Manager the working directory is C:\Windows\System32, so a CWD-based
+    // search would never find .localConfigs / env/.env.local and the bot would start mis-configured.
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
 
     while (current is not null)
     {

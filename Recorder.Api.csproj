@@ -1,9 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Retargeted net10.0 -> net8.0: the Graph Communications media SDK supports
+         net6.0/net4.7.2 only, and net8.0 (LTS) is the safe host for it. -->
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Recorder.Api</RootNamespace>
+
+    <!-- The real-time media platform ships a Windows-only native runtime, so the
+         app must build/run as win-x64. If `dotnet run` complains, run:
+            dotnet run -r win-x64
+         or remove this and pass -r win-x64 explicitly. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +23,22 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Existing: audio buffering / WAV wrapping / resampling -->
     <PackageReference Include="NAudio" Version="2.2.1" />
+
+    <!-- Lets the app run under the Windows Service Control Manager (SCM): responds to
+         start/stop signals for graceful shutdown, resets content root to the exe folder,
+         and routes logs to the Windows Event Log. See install-service.ps1. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+
+    <!-- Rolling file logging so the full log stream is captured to disk while running headless
+         as a service (the console stream is otherwise lost). Writes logs/recorder-<date>.log. -->
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+
+    <!-- NEW: Microsoft Graph Communications (app-hosted media) SDK.
+         These versions target net6.0; net8.0 consumes them fine.
+         Verify the exact latest build on nuget.org and bump if needed. -->
+    <PackageReference Include="Microsoft.Graph.Communications.Calls.Media" Version="1.2.0.15690" />
+    <PackageReference Include="Microsoft.Graph.Communications.Client" Version="1.2.0.15690" />
   </ItemGroup>
 </Project>
